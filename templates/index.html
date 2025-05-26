@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>中国象棋联机对战</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        body {
+            font-family: '微软雅黑', Arial, sans-serif;
+            text-align: center;
+            background-color: #f5f5dc;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 {
+            color: #8B4513;
+            margin-bottom: 20px;
+        }
+
+        #game-info {
+            margin: 20px 0;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        #board-container {
+            display: inline-block;
+            background-color: #DEB887;
+            padding: 20px;
+            border: 3px solid #8B4513;
+            border-radius: 10px;
+        }
+
+        #board {
+            display: grid;
+            grid-template-columns: repeat(9, 60px);
+            grid-template-rows: repeat(10, 60px);
+            gap: 2px;
+            background-color: #F4A460;
+            border: 2px solid #8B4513;
+        }
+
+        .cell {
+            width: 60px;
+            height: 60px;
+            background-color: #F5DEB3;
+            border: 1px solid #D2B48C;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            font-weight: bold;
+            cursor: pointer;
+            position: relative;
+            transition: all 0.2s ease;
+        }
+
+        .cell:hover {
+            background-color: #FFE4B5;
+            transform: scale(1.05);
+        }
+
+        .cell.selected {
+            background-color: #FFD700;
+            border: 2px solid #FF6347;
+            box-shadow: 0 0 10px rgba(255, 99, 71, 0.5);
+        }
+
+        .red-piece {
+            color: #DC143C;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+        }
+
+        .black-piece {
+            color: #2F4F4F;
+            text-shadow: 1px 1px 2px rgba(255,255,255,0.3);
+        }
+
+        .river {
+            background-color: #87CEEB;
+        }
+
+        /* 楚河汉界样式 */
+        .cell[data-row="4"], .cell[data-row="5"] {
+            background-color: #B0E0E6;
+            border-top: 2px solid #4682B4;
+            border-bottom: 2px solid #4682B4;
+        }
+
+        /* 可移动位置样式 - 放在最后以确保最高优先级 */
+        .cell.valid-move {
+            background-color: #98FB98 !important;
+            border: 2px solid #32CD32 !important;
+            box-shadow: 0 0 8px rgba(50, 205, 50, 0.6);
+        }
+
+        .cell.valid-move:hover {
+            background-color: #90EE90 !important;
+            transform: scale(1.1);
+        }
+    </style>
+</head>
+<body>
+    <h1>中国象棋联机对战</h1>
+    <div id="game-info">
+        <div>房间号: <span id="room-display"></span></div>
+        <div>你是: <span id="player-color-display">等待分配...</span></div>
+        <div>当前回合: <span id="turn-display"></span></div>
+    </div>
+    <div id="board-container">
+        <div id="board"></div>
+    </div>
+    <script>
+        const socket = io();
+        let selectedCell = null;
+        let currentRoom = null;
+        let currentTurn = 'red';
+        let playerColor = null;  // 存储当前玩家的颜色
+
+        // Join a game room
+        const room = prompt("请输入房间号:");
+        currentRoom = room;
+        document.getElementById('room-display').textContent = room;
+        socket.emit('join_game', { room });
+
+        // 判断棋子颜色
+        function isRedPiece(piece) {
+            const redPieces = ['兵', '炮', '俥', '傌', '相', '仕', '帥'];
+            return redPieces.includes(piece);
+        }
+
+        function isBlackPiece(piece) {
+            const blackPieces = ['卒', '砲', '車', '馬', '象', '士', '將'];
+            return blackPieces.includes(piece);
+        }
+
+        // Render the board
+        function renderBoard(board) {
+            const boardDiv = document.getElementById('board');
+            boardDiv.innerHTML = '';
+
+            board.forEach((row, rowIndex) => {
+                row.forEach((cell, colIndex) => {
+                    const cellDiv = document.createElement('div');
+                    cellDiv.className = 'cell';
+                    cellDiv.dataset.row = rowIndex;
+                    cellDiv.dataset.col = colIndex;
+                    cellDiv.textContent = cell;
+
+                    // 添加棋子颜色样式
+                    if (isRedPiece(cell)) {
+                        cellDiv.classList.add('red-piece');
+                    } else if (isBlackPiece(cell)) {
+                        cellDiv.classList.add('black-piece');
+                    }
+
+                    // 添加点击事件
+                    cellDiv.addEventListener('click', () => handleCellClick(rowIndex, colIndex));
+
+                    boardDiv.appendChild(cellDiv);
+                });
+            });
+        }
+
+        // Handle cell click
+        function handleCellClick(row, col) {
+            const cellDiv = document.querySelector(`[data-row="${row}"][data-col="${col}"]`);
+
+            // 如果点击的是有效移动位置
+            if (cellDiv.classList.contains('valid-move')) {
+                if (selectedCell) {
+                    const move = [selectedCell.row, selectedCell.col, row, col];
+                    socket.emit('move', { room: currentRoom, move });
+                    clearSelection();
+                }
+                return;
+            }
+
+            // 清除之前的选择
+            clearSelection();
+
+            // 如果点击的是棋子
+            const piece = cellDiv.textContent;
+            if (piece && piece !== '') {
+                // 检查是否是当前玩家的棋子且轮到该玩家
+                const isMyPiece = (playerColor === 'red' && isRedPiece(piece)) ||
+                                  (playerColor === 'black' && isBlackPiece(piece));
+
+                if (isMyPiece && playerColor === currentTurn) {
+                    selectedCell = { row, col };
+                    cellDiv.classList.add('selected');
+
+                    // 获取可移动位置
+                    socket.emit('get_valid_moves', { room: currentRoom, row, col });
+                }
+            }
+        }
+
+        // Clear selection and highlights
+        function clearSelection() {
+            document.querySelectorAll('.cell').forEach(cell => {
+                cell.classList.remove('selected', 'valid-move');
+            });
+            selectedCell = null;
+        }
+
+        // Listen for game state updates
+        socket.on('game_state', (data) => {
+            renderBoard(data.board);
+            currentTurn = data.turn;
+            document.getElementById('turn-display').textContent =
+                data.turn === 'red' ? '红方' : '黑方';
+        });
+
+        // Listen for valid moves
+        socket.on('valid_moves', (data) => {
+            data.moves.forEach(([row, col]) => {
+                const cellDiv = document.querySelector(`[data-row="${row}"][data-col="${col}"]`);
+                if (cellDiv) {
+                    cellDiv.classList.add('valid-move');
+                }
+            });
+        });
+
+        // Handle invalid moves
+        socket.on('invalid_move', () => {
+            alert('无效的走棋！');
+            clearSelection();
+        });
+
+        // Handle game over
+        socket.on('game_over', (data) => {
+            const winner = data.winner === 'red' ? '红方' : '黑方';
+            alert(`游戏结束！${winner}获胜`);
+            clearSelection();
+        });
+
+        // Listen for player color assignment
+        socket.on('player_color', (data) => {
+            playerColor = data.color;
+            document.getElementById('player-color-display').textContent =
+                data.color === 'red' ? '红方' : '黑方';
+        });
+
+        // Handle room full
+        socket.on('room_full', () => {
+            alert('房间已满！');
+        });
+    </script>
+</body>
+</html>
