@@ -10,10 +10,6 @@ def main():
     # 创建象棋服务器实例
     server = ChessServer()
 
-    # 启动服务器
-    print("正在启动中国象棋游戏服务器...")
-    print("访问 http://localhost:5000 开始游戏")
-
     try:
         server.run(host='0.0.0.0', port=5000, debug=True)
     except KeyboardInterrupt:

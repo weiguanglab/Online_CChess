@@ -1,4 +1,3 @@
-
 class ChessBoard:
     """中国象棋棋盘类"""
 

@@ -1,4 +1,3 @@
-
 from .board import ChessBoard
 
 class MoveValidator:
